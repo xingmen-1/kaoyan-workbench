@@ -1480,37 +1480,7 @@ function seedQuestions() {
 /* ---------------- 示例数据 ---------------- */
 function seed() {
   const questions = seedQuestions();
-  /* 错题本示例：直接从上面的真题里取，原题、答案与题库完全一致（打印出来才看得出错的是哪道题） */
-  const pickQ = (subject, year, no) => questions.find(q => q.subject === subject && q.year === year && String(q.no) === String(no));
-  const mkWrong = (q, extra) => Object.assign({
-    id: uid(), subject: q.subject, module: q.module, kp: q.kp, year: q.year, no: q.no,
-    title: qTitle(q), stem: q.stem, answer: q.answer, explain: '', reason: '', note: '',
-    srcKind: 'real', srcName: q.srcName,
-    reviewCount: 0, mastered: false, addedAt: Date.now(), nextReview: todayKey(new Date(Date.now() + DAY)),
-  }, extra);
-  const wrongBook = [
-    mkWrong(pickQ('math1', 2023, '1'), {
-      reason: '看到 ln(e + 1/(x−1)) 就直接取极限，先算了 b 没先算斜率 k，导致渐近线写成了 y = x。',
-      explain: '斜渐近线两步走：k = lim f(x)/x = 1，再 b = lim [f(x) − kx] = 1/e，所以是 y = x + 1/e。',
-      note: '凡带 ln 的斜渐近线，都要先把括号里的常数项单独拎出来。',
-      reviewCount: 2, addedAt: Date.now() - 6 * DAY, nextReview: todayKey(new Date(Date.now() + 1 * DAY)),
-    }),
-    mkWrong(pickQ('math2', 2022, '1'), {
-      reason: '只验了 ①③④ 就选了，漏了 ② 的反例（取 α = −β 时 α² ~ β² 成立但 α 与 β 不等价）。',
-      explain: '①③④ 为真；② 举反例 α(x) = −β(x) 即可推翻，所以选 ①③④。',
-      reviewCount: 1, addedAt: Date.now() - 3 * DAY, nextReview: todayKey(new Date(Date.now() - 1 * DAY)),
-    }),
-    mkWrong(pickQ('math2', 2022, '6'), {
-      reason: '把 cos(sin xₙ) 极限存在直接当成 xₙ 收敛，忽略了 −π/2 ≤ xₙ ≤ π/2 这个区间条件。',
-      explain: 'sin 在 [−π/2, π/2] 上单调，cos(sin xₙ) 极限存在只能推 sin xₙ 存在；要落到 xₙ 还得再用单调性。',
-      reviewCount: 3, mastered: true, addedAt: Date.now() - 18 * DAY, nextReview: todayKey(new Date(Date.now() + 5 * DAY)),
-    }),
-    mkWrong(pickQ('math1', 2023, '8'), {
-      reason: 'E|X − EX| 直接按方差算了，没把 X = 0 那项单独拆出来。',
-      explain: 'X ~ P(1)，EX = 1；分 X = 0 与 X ≥ 1 两段求和，得 E|X − EX| = 2/e。',
-      reviewCount: 0, addedAt: Date.now() - 1 * DAY, nextReview: todayKey(),
-    }),
-  ];
+  // 倒数日给三条常见的备考节点做默认，用户可自行改删
   const countdowns = [
     { id: uid(), name: '28 考研初试', date: '2027-12-25', createdAt: todayKey(), img: '', color: 'linear-gradient(140deg,#3f6f9f,#2b4a6b)' },
     { id: uid(), name: '数学一轮结束', date: '2027-03-31', createdAt: todayKey(), img: '', color: 'linear-gradient(140deg,#c98a20,#8a5a12)' },
@@ -1518,27 +1488,8 @@ function seed() {
   ];
   return {
     settings: { theme: 'dark', sound: true, defaultMin: 25 },
-    sessions: (() => {
-      // 跨十来天的示例专注记录，让分布图能看出形状
-      const plan = [
-        [0, 9, 45, '数学-高数'], [0, 14, 25, '英语'], [0, 20, 32, '408-数据结构'],
-        [-1, 10, 110, '数学-高数'],
-        [-2, 9, 130, '数学-高数'], [-2, 15, 88, '英语'],
-        [-3, 10, 150, '408-数据结构'], [-3, 16, 108, '数学-线代'],
-        [-4, 9, 180, '数学-高数'], [-4, 14, 120, '英语'],
-        [-5, 10, 95, '408-操作系统'], [-6, 9, 60, '英语'],
-        [-7, 9, 120, '数学-高数'], [-7, 15, 70, '408-数据结构'],
-        [-8, 10, 140, '数学-线代'], [-8, 16, 100, '英语'],
-        [-9, 9, 95, '数学-高数'], [-10, 10, 75, '408-计算机网络'],
-        [-11, 9, 160, '数学-高数'],
-      ];
-      return plan.map(([d, h, min, sub]) => {
-        const dt = new Date();
-        dt.setDate(dt.getDate() + d); dt.setHours(h, 0, 0, 0);
-        return { id: uid(), subject: sub, mode: 'down', minutes: min, at: dt.getTime() };
-      });
-    })(),
-    questions, wrongBook, countdowns, papers: [],
+    sessions: [],            // 番茄记录从零开始，数据由使用者自己攒
+    questions, wrongBook: [], countdowns, papers: [],
   };
 }
 
