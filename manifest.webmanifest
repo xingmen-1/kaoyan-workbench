@@ -1,0 +1,23 @@
+{
+  "name": "考研工作台",
+  "short_name": "考研工作台",
+  "description": "番茄钟、真题题库、错题本、倒数日的备考工作台，手机电脑双端同步。",
+  "lang": "zh-CN",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#efe6d2",
+  "theme_color": "#efe6d2",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "番茄钟", "url": "./index.html#timer" },
+    { "name": "题库", "url": "./index.html#bank" },
+    { "name": "错题本", "url": "./index.html#wrong" }
+  ]
+}
