@@ -2914,6 +2914,7 @@ async function syncBoot() {
   } catch {
     SYNC.on = false;
     syncPaint('off');
+    loadStaticBank();   // 没有本地服务（例如手机装成 App 独立跑）→ 立刻去取静态题库
   }
   renderSettings();
 }
