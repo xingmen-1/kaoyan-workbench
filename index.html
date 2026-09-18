@@ -597,6 +597,28 @@ select.sel{padding:6px 11px;font-size:12.5px;width:auto;cursor:pointer;border-ra
 .hidden{display:none !important}
 .mobile-only{display:none}
 
+/* ========== 登录门（云端账号） ========== */
+.gate{
+  position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:18px;
+  background:var(--bg);
+  background-image:radial-gradient(700px 420px at 50% -10%,var(--neon-soft),transparent 70%);
+}
+.gate-card{
+  width:min(420px,100%);background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-card);
+  padding:22px;box-shadow:var(--shadow-lg);
+}
+.gate-brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.gate-brand .brand-mark{
+  width:44px;height:44px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--neon),var(--neon-2));color:var(--on-neon);font-size:21px;font-family:var(--head);
+}
+.gate-msg{font-size:var(--fs-3);color:var(--accent);min-height:20px;margin-top:10px}
+.gate-msg.ok{color:var(--green)}
+.gate-note{font-size:var(--fs-2);color:var(--muted);line-height:1.7;margin:16px 0 0;border-top:1px solid var(--line);padding-top:12px}
+.gate-note b{color:var(--ink-2)}
+html[data-theme="light"] .gate-card{border-radius:4px;background:linear-gradient(180deg,#fffdf7,#f9f2e2)}
+html[data-theme="light"] .gate-brand .brand-mark{border-radius:3px;background:linear-gradient(160deg,#a83228,#8a231c)}
+
 /* ========== 打印（错题本导出 PDF）：白纸黑字 ========== */
 #print-area{display:none}
 @media print{
@@ -1387,6 +1409,35 @@ html[data-theme="light"] .rhy-val{font-family:var(--head)}
 <div class="toast" id="toast"></div>
 <div id="print-area"></div>
 
+<!-- ============ 登录（GitHub 云端同步）============ -->
+<div class="gate hidden" id="loginGate">
+  <div class="gate-card">
+    <div class="gate-brand">
+      <div class="brand-mark">考</div>
+      <div>
+        <div class="brand-name">考研工作台</div>
+        <div class="brand-sub">登录后数据存云端 · 换手机也不丢</div>
+      </div>
+    </div>
+    <label class="field"><span>GitHub 令牌（只勾 gist 权限）</span>
+      <input id="authToken" autocomplete="off" spellcheck="false" placeholder="粘贴 ghp_ 开头的那串"></label>
+    <div class="gate-msg" id="authMsg"></div>
+    <button class="btn btn-primary btn-block" id="authGo" style="margin-top:14px">登录并开启云同步</button>
+    <button class="btn btn-ghost btn-block" id="authSkip" style="margin-top:8px">先不登录，只在这台设备上用</button>
+    <div class="gate-note">
+      <b>怎么拿令牌（一次性，手机和电脑用同一个）</b><br>
+      1. 浏览器打开 <b>github.com/settings/tokens</b>（需先登录 GitHub）<br>
+      2. <b>Generate new token</b> → <b>Generate new token (classic)</b><br>
+      3. Note 随便填（如 <code>kaoyan</code>），Expiration 选 <b>No expiration</b><br>
+      4. 权限列表里<b>只勾 gist</b> 这一项<br>
+      5. 拉到底 <b>Generate token</b>，复制 <code>ghp_</code> 开头那串<br>
+      <br>
+      数据存在你自己的<b>私有 Gist</b> 里，只有你的令牌能读写。<br>
+      登录后番茄记录、错题本、题目标记、倒数日都上云，<b>删掉 App 或换手机，重新粘贴同一个令牌就能拉回来</b>。
+    </div>
+  </div>
+</div>
+
 <script>
 /* =========================================================================
    考研工作台 UI 原型
@@ -1425,7 +1476,9 @@ const REAL_SRC = {
 /** 造一道真题记录。@param {string} type 选择题/填空题/解答题 */
 function realQ(subject, module, kp, year, no, type, stem, answer, src) {
   return {
-    id: uid(), subject, module, kp, year, no, type, stem, answer, explain: '',
+    // 真题用「科目-年份-题号」做稳定 id：同一道题在任何设备上都是同一个 id，
+    // 云端标记才能对得上（早期版本这里用的是随机 id，会导致换设备后星标丢失）。
+    id: `real-${subject}-${year}-${no}`, subject, module, kp, year, no, type, stem, answer, explain: '',
     srcKind: 'real', srcName: src.name, srcUrl: src.url, paperId: null,
     star: false, delta: false, note: '', addedAt: Date.now(),
   };
@@ -1526,9 +1579,13 @@ function backfillStem(w) {
   w.stem = hit.stem; w.answer = w.answer || hit.answer; w.explain = w.explain || hit.explain;
   save(); renderWrong(); toast('已从题库补上原题');
 }
-function save() {
+function saveLocal() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) { /* 隐私模式下写入失败，仅本次会话有效 */ }
-  scheduleSync();   // 连上服务时顺手推给另一台设备
+}
+function save() {
+  saveLocal();
+  scheduleSync();        // 在家连上电脑服务时推给电脑
+  scheduleCloudPush();   // 登录后推给云端
 }
 
 /* ---------------- 通用 UI ---------------- */
@@ -2707,29 +2764,38 @@ function renderSettings() {
   $$('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.t === S.settings.theme));
   renderSyncCard();
 }
-/** 同步状态面板：连着服务时给地址和数据版本，没连时告诉怎么开。 */
+/** 同步状态面板：登录云端时给账号信息，否则给局域网/本机状态。 */
 function renderSyncCard() {
   const tag = $('#syncTag'), box = $('#syncBody');
   if (!tag || !box) return;
   const line = (k, v) => `<div class="stat"><span class="k">${k}</span><span class="v" style="font-size:var(--fs-3)">${v}</span></div>`;
-  if (SYNC.on) {
-    tag.className = 'tag t-green'; tag.textContent = '已连接';
+  const btn = (id, text, primary) => `<button class="btn ${primary ? 'btn-primary' : ''} btn-sm" id="${id}" style="margin-top:10px">${text}</button>`;
+
+  if (CLOUD.on) {
+    tag.className = 'tag t-green'; tag.textContent = '云端已登录';
+    box.innerHTML =
+      line('账号', '<b>' + esc(CLOUD.username) + '</b>')
+      + line('数据位置', '你的私有 Gist（换手机 / 删掉 App 后重新登录即可恢复）')
+      + line('上次同步', CLOUD.lastSyncedAt ? new Date(CLOUD.lastSyncedAt).toLocaleString('zh-CN') : '—')
+      + btn('cloudSyncNowBtn', '立即同步', true) + ' ' + btn('cloudLogoutBtn', '退出登录', false);
+  } else if (SYNC.on) {
+    tag.className = 'tag t-green'; tag.textContent = '局域网已连接';
     const phone = SYNC.lan.length ? SYNC.lan[0] : '（未检测到局域网地址）';
     box.innerHTML =
-      line('状态', '两端共用服务端这一份数据')
+      line('状态', '与电脑共用一份数据（同一 WiFi）')
       + line('服务地址', esc(location.origin))
-      + line('手机打开', `<b>${esc(phone)}</b>`)
-      + line('本机设备', esc(SYNC.device.slice(0, 6)))
-      + line('数据版本', `v${SYNC.version} · ${SYNC.lastAt ? new Date(SYNC.lastAt).toLocaleTimeString('zh-CN') : '—'}`)
-      + `<p style="font-size:var(--fs-3);color:var(--muted);margin:10px 0 0">
-           手机与该地址在同一 Wi-Fi 下即可打开，再「添加到主屏幕」就当 App 用。改动会自动同步，电脑关掉服务后手机仍可用本机缓存继续记录。</p>`;
+      + line('手机打开', '<b>' + esc(phone) + '</b>')
+      + line('数据版本', 'v' + SYNC.version + ' · ' + (SYNC.lastAt ? new Date(SYNC.lastAt).toLocaleTimeString('zh-CN') : '—'))
+      + btn('cloudLoginBtn', '登录云端账号（换手机也不丢）', true);
   } else {
-    tag.className = 'tag t-amber'; tag.textContent = '本机模式';
+    tag.className = 'tag t-amber'; tag.textContent = '仅本机';
     box.innerHTML =
-      line('状态', '只存在这台设备的浏览器里')
-      + `<p style="font-size:var(--fs-3);color:var(--muted);margin:10px 0 0">
-           想手机电脑同步：在电脑上运行 <code>node server.mjs</code>，用它打印出的局域网地址打开本页即可。</p>`;
+      line('状态', '数据只存在这台设备里')
+      + btn('cloudLoginBtn', '登录 / 注册云端账号', true);
   }
+  const lb = $('#cloudLoginBtn'); if (lb) lb.onclick = () => { gateMsg(''); showGate(true); };
+  const lo = $('#cloudLogoutBtn'); if (lo) lo.onclick = () => cloudLogout();
+  const sn = $('#cloudSyncNowBtn'); if (sn) sn.onclick = async () => { const ok = await cloudPush(true); toast(ok ? '已同步到云端' : '同步失败，检查网络'); renderSettings(); };
 }
 $('#syncBtn').onclick = () => { go('settings'); };
 $('#syncNowBtn').onclick = async () => {
@@ -2956,8 +3022,235 @@ async function loadStaticBank() {
       if (currentView === 'bank') renderBank();
       if (added) toast(`题库已就绪：新增 ${added} 道`);
     }
+    // 云端数据可能先到（标记要靠题号对上），题库就位后再套一次
+    if (CLOUD.pendingMarks) { applyMarks(CLOUD.pendingMarks); saveLocal(); if (currentView === 'bank') renderBank(); }
   } catch { /* 拿不到 bank.json 就用内置的那份，不影响使用 */ }
 }
+
+/* =========================================================================
+   云端同步（GitHub 私有 Gist）
+   登录 = 粘贴一个只带 gist 权限的 GitHub 令牌：不用注册新账号、没有邮箱验证门槛。
+   数据存在你自己的私有 Gist 里，同一个令牌在多台设备上共用同一份数据；
+   删掉 App 或换手机，重新粘贴同一个令牌即可拉回。
+   ========================================================================= */
+const GH = { api: 'https://api.github.com', file: 'kaoyan-data.json', desc: 'kaoyan-workbench-data' };
+const CLOUD = { on: false, token: '', gistId: '', username: '', timer: null, pushing: false, pendingMarks: null };
+
+const cloudToken = () => { try { return localStorage.getItem('kaoyan.ghtoken') || ''; } catch { return ''; } };
+function cloudSetToken(t, u, gid) {
+  try {
+    if (t) {
+      localStorage.setItem('kaoyan.ghtoken', t);
+      localStorage.setItem('kaoyan.ghuser', u || '');
+      localStorage.setItem('kaoyan.ghgist', gid || '');
+    } else {
+      localStorage.removeItem('kaoyan.ghtoken'); localStorage.removeItem('kaoyan.ghuser'); localStorage.removeItem('kaoyan.ghgist');
+    }
+  } catch { /* 隐私模式存不下，本次会话仍可用 */ }
+}
+async function ghApi(path, opts = {}) {
+  const r = await fetch(GH.api + path, {
+    method: opts.method || 'GET',
+    headers: Object.assign({
+      accept: 'application/vnd.github+json',
+      authorization: 'Bearer ' + CLOUD.token,
+      'x-github-api-version': '2022-11-28',
+    }, opts.body ? { 'content-type': 'application/json' } : {}),
+    body: opts.body,
+    cache: 'no-store',
+  });
+  const text = await r.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch { /* 少数响应不是 JSON（如空体） */ }
+  return { ok: r.ok, status: r.status, json, text };
+}
+/** 找到（或新建）存放数据的私有 Gist。 */
+async function ghFindGist() {
+  const cached = (() => { try { return localStorage.getItem('kaoyan.ghgist') || ''; } catch { return ''; } })();
+  if (cached) {
+    const r = await ghApi('/gists/' + cached);
+    if (r.ok) return cached;
+    if (r.status !== 404) throw new Error('读取云端数据失败（HTTP ' + r.status + '）');
+  }
+  const list = await ghApi('/gists?per_page=100');
+  if (!list.ok) throw new Error('无法读取 Gist 列表（HTTP ' + list.status + '）');
+  const hit = (list.json || []).find(g => g.description === GH.desc || (g.files && g.files[GH.file]));
+  if (hit) return hit.id;
+  const made = await ghApi('/gists', {
+    method: 'POST',
+    body: JSON.stringify({ description: GH.desc, public: false, files: { [GH.file]: { content: '{}' } } }),
+  });
+  if (!made.ok) throw new Error('创建云端存储失败（HTTP ' + made.status + '）');
+  return made.json.id;
+}
+/** 一道题的跨设备稳定标识：真题按「科目+年份+题号+来源」，与电脑端合并规则一致；
+ *  自己录的题没有年份题号，退回用本机 id（本来也只在本机存在）。 */
+function qKeyOf(q) {
+  if (q.srcKind === 'real' || q.year) return [q.subject, q.year ?? '', String(q.no ?? ''), q.srcName || ''].join('|');
+  return 'u:' + q.id;
+}
+/** 只把「属于你的数据」送上云：题库本身随 App 发布，不进云端，所以又快又省。 */
+function collectPayload() {
+  const marks = {};
+  S.questions.forEach(q => {
+    if (q.star || q.delta || q.note) marks[qKeyOf(q)] = { s: q.star ? 1 : 0, d: q.delta ? 1 : 0, n: q.note || '' };
+  });
+  // 番茄记录只保留最近 3000 条，避免 Gist 单文件过大（上限 1MB）
+  const sessions = S.sessions.slice(0, 3000);
+  return { sessions, wrongBook: S.wrongBook, countdowns: S.countdowns, settings: S.settings, marks, savedAt: Date.now() };
+}
+/** 把云端的题目标记套到本地题库上（题库本身来自 bank.json，不在云端）。
+ *  同一道题在本机可能有两份（内置种子 + 题目包），所以按 key 匹配「所有」同键题目。 */
+function applyMarks(marks) {
+  if (!marks) return 0;
+  let n = 0;
+  S.questions.forEach(q => {
+    const m = marks[qKeyOf(q)];
+    if (m) { q.star = !!m.s; q.delta = !!m.d; q.note = m.n || ''; n++; }
+  });
+  return n;
+}
+function applyPayload(p, silent) {
+  if (!p) return;
+  if (Array.isArray(p.sessions)) S.sessions = p.sessions;
+  if (Array.isArray(p.wrongBook)) S.wrongBook = p.wrongBook;
+  if (Array.isArray(p.countdowns)) S.countdowns = p.countdowns;
+  if (p.settings) S.settings = Object.assign({}, S.settings, p.settings);
+  if (p.marks) { applyMarks(p.marks); CLOUD.pendingMarks = p.marks; }
+  saveLocal();          // 只落本机，不再触发推送，避免来回打架
+  applyTheme(); buildNav(); go(currentView); renderSettings(); renderWrong(); renderCountdowns();
+  if (!silent) toast('已同步云端数据');
+}
+/** 从 Gist 取回数据；取不到（新账号/空文件）返回 null。 */
+async function cloudFetch() {
+  const r = await ghApi('/gists/' + CLOUD.gistId);
+  if (!r.ok) return null;
+  const f = r.json && r.json.files && r.json.files[GH.file];
+  if (!f) return null;
+  let content = f.content;
+  if (f.truncated && f.raw_url) content = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
+  try {
+    const p = JSON.parse(content);
+    return (p && typeof p === 'object' && (Array.isArray(p.sessions) || p.marks || Array.isArray(p.wrongBook))) ? p : null;
+  } catch { return null; }
+}
+/** 题库是标记的载体：同步前确保它已就位，否则云端标记会因为对不上题号而丢。 */
+async function ensureBank() {
+  if (SYNC.on || S.questions.length > 100) return;
+  await loadStaticBank();
+}
+/** 用令牌登录：验证身份 → 找到/建立云端存储 → 拉取（没有就推送本机）。 */
+async function cloudLogin(token) {
+  CLOUD.token = String(token || '').trim();
+  const me = await ghApi('/user');
+  if (!me.ok) throw new Error(me.status === 401 ? '令牌无效，检查是否复制完整' : '连不上 GitHub（HTTP ' + me.status + '）');
+  CLOUD.username = me.json.login;
+  CLOUD.gistId = await ghFindGist();
+  cloudSetToken(CLOUD.token, CLOUD.username, CLOUD.gistId);
+  CLOUD.on = true;
+  SYNC.on = false;                       // 云端优先，关掉局域网同步，避免两边同时写
+  await ensureBank();
+  const p = await cloudFetch();
+  if (p) { CLOUD.lastSyncedAt = p.savedAt || Date.now(); applyPayload(p, true); }
+  else await cloudPush(true);
+  cloudPaint();
+  return CLOUD.username;
+}
+async function cloudBoot() {
+  const t = cloudToken();
+  if (!t) return false;
+  CLOUD.token = t;
+  try {
+    const me = await ghApi('/user');
+    if (!me.ok) { cloudSetToken(''); showGate(true); return false; }
+    CLOUD.username = me.json.login;
+    CLOUD.gistId = await ghFindGist();
+    CLOUD.on = true; SYNC.on = false;
+    await ensureBank();
+    const p = await cloudFetch();
+    if (p) { CLOUD.lastSyncedAt = p.savedAt || Date.now(); applyPayload(p, true); }
+    else await cloudPush(true);
+    cloudPaint(); return true;
+  } catch (e) {
+    CLOUD.on = false;
+    toast('云端暂时连不上，先用本机数据');
+    return false;
+  } finally { renderSettings(); }
+}
+async function cloudPush(immediate) {
+  if (!CLOUD.on || CLOUD.pushing) return false;
+  CLOUD.pushing = true; cloudPaint('同步中…');
+  try {
+    const body = JSON.stringify({ files: { [GH.file]: { content: JSON.stringify(collectPayload()) } } });
+    const r = await ghApi('/gists/' + CLOUD.gistId, { method: 'PATCH', body });
+    if (!r.ok) { cloudPaint('同步失败 HTTP ' + r.status); return false; }
+    CLOUD.lastSyncedAt = Date.now();
+    cloudPaint('已同步 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+    return true;
+  } catch {
+    cloudPaint('云端连不上');
+    return false;
+  } finally { CLOUD.pushing = false; }
+}
+function scheduleCloudPush() {
+  if (!CLOUD.on) return;
+  clearTimeout(CLOUD.timer);
+  CLOUD.timer = setTimeout(() => cloudPush(), 900);
+}
+async function cloudPull() {
+  if (!CLOUD.on || CLOUD.pushing) return;
+  if (document.querySelector('.modal-mask') || !$('#loginGate').classList.contains('hidden')) return;
+  try {
+    const p = await cloudFetch();
+    if (p && (p.savedAt || 0) > (CLOUD.lastSyncedAt || 0)) { CLOUD.lastSyncedAt = p.savedAt || 0; applyPayload(p); }
+  } catch { /* 网络抖动忽略，下次再拉 */ }
+}
+function cloudPaint(extra) {
+  const t = $('#syncText');
+  if (!t) return;
+  if (CLOUD.on) { $('#syncPill').dataset.s = 'on'; t.textContent = extra || ('云端 · ' + CLOUD.username); }
+  else { $('#syncPill').dataset.s = 'off'; t.textContent = '本机存储'; }
+}
+
+/* ---- 登录界面（粘贴 GitHub 令牌） ---- */
+function showGate(show) {
+  $('#loginGate').classList.toggle('hidden', !show);
+  if (show) $('#authToken').focus();
+}
+function gateMsg(text, ok) {
+  const el = $('#authMsg');
+  el.textContent = text || '';
+  el.classList.toggle('ok', !!ok);
+}
+$('#authSkip').onclick = () => {
+  try { localStorage.setItem('kaoyan.gateSkipped', '1'); } catch { /* 存不下也只是下次再问一遍 */ }
+  showGate(false);
+};
+$('#authGo').onclick = async () => {
+  const token = $('#authToken').value.trim();
+  if (!token) return gateMsg('请先粘贴 GitHub 令牌');
+  if (/\s/.test(token) || token.length < 20) return gateMsg('这不像一个令牌，检查是否复制完整（ghp_ / gho_ / github_pat_ 开头的一长串）');
+  $('#authGo').disabled = true;
+  gateMsg('正在连接 GitHub…');
+  try {
+    const user = await cloudLogin(token);
+    gateMsg('登录成功：' + user, true);
+    try { localStorage.removeItem('kaoyan.gateSkipped'); } catch { /* 同上 */ }
+    setTimeout(() => { showGate(false); renderSettings(); toast('已登录：' + user); }, 400);
+  } catch (e) {
+    gateMsg(e && e.message ? e.message : '登录失败，检查网络后重试');
+  } finally { $('#authGo').disabled = false; }
+};
+$('#authToken').addEventListener('keydown', e => { if (e.key === 'Enter') $('#authGo').click(); });
+
+async function cloudLogout() {
+  cloudSetToken('');
+  CLOUD.on = false; CLOUD.token = ''; CLOUD.username = ''; CLOUD.gistId = ''; CLOUD.pendingMarks = null;
+  cloudPaint();
+  renderSettings();
+  toast('已退出登录，数据仍保留在本机');
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && CLOUD.on) cloudPull(); });
 
 function boot() {
   applyTheme();
@@ -2968,9 +3261,16 @@ function boot() {
   $('#topDays').textContent = d;
   $('#sideDays').textContent = d + ' 天';
   go('timer');
-  syncBoot();
-  // 三秒后如果还没连上本地服务，就说明是「装成 App 独立跑」的形态，去读静态题库
-  setTimeout(() => { if (!SYNC.on) loadStaticBank(); }, 3000);
+  if (cloudToken()) {
+    cloudBoot();                       // 登录过 → 数据以云端为准
+  } else {
+    syncBoot();                        // 没登录 → 试试局域网里的电脑服务
+    let skipped = false;
+    try { skipped = localStorage.getItem('kaoyan.gateSkipped') === '1'; } catch { /* 读不到就当成没跳过 */ }
+    if (!skipped) setTimeout(() => showGate(true), 700);
+  }
+  // 既没有局域网服务、也没登录云端时，去取随站点发布的静态题库
+  setTimeout(() => { if (!SYNC.on && !CLOUD.on) loadStaticBank(); }, 3000);
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* 注册失败只是没有离线缓存，不影响使用 */ });
   }
