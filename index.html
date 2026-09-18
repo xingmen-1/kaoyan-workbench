@@ -597,6 +597,17 @@ select.sel{padding:6px 11px;font-size:12.5px;width:auto;cursor:pointer;border-ra
 .hidden{display:none !important}
 .mobile-only{display:none}
 
+/* ========== 「装到桌面」提示条 ========== */
+.install-bar{
+  position:fixed;left:0;right:0;bottom:0;z-index:80;display:flex;align-items:center;gap:10px;
+  padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));
+  background:var(--surface);border-top:1px solid var(--line-2);
+  box-shadow:0 -8px 24px rgba(0,0,0,.28);
+}
+.install-bar .ib-txt{flex:1;font-size:var(--fs-3);color:var(--ink-2);line-height:1.5}
+.install-bar .btn{flex:0 0 auto}
+html[data-theme="light"] .install-bar{background:linear-gradient(180deg,#fffdf7,#f7efdd);box-shadow:0 -6px 18px rgba(120,90,50,.14)}
+
 /* ========== 登录门（云端账号） ========== */
 .gate{
   position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:18px;
@@ -1143,6 +1154,13 @@ html[data-theme="light"] .rhy-val{font-family:var(--head)}
 </style>
 </head>
 <body>
+
+<!-- 浏览器支持「安装应用」时才出现：一键把工作台装到手机桌面 -->
+<div class="install-bar hidden" id="installBar">
+  <span class="ib-txt">把考研工作台装到桌面，打开就是全屏 App</span>
+  <button class="btn btn-primary btn-sm" id="installBtn">安装</button>
+  <button class="btn btn-ghost btn-sm" id="installLater">以后</button>
+</div>
 
 <div class="app">
   <!-- ============ 侧边栏（电脑端） ============ -->
@@ -3251,6 +3269,43 @@ async function cloudLogout() {
   toast('已退出登录，数据仍保留在本机');
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && CLOUD.on) cloudPull(); });
+
+/* =========================================================================
+   「装到桌面」：浏览器判定可安装时（HTTPS + manifest + Service Worker 齐备），
+   会抛出 beforeinstallprompt；把这个机会留到用户点「安装」时再用。
+   已经以 App 形态运行（standalone）或用户点过「以后」就不再打扰。
+   ========================================================================= */
+let installEvent = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+function showInstallBar(show) {
+  const bar = $('#installBar');
+  if (!bar) return;
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('kaoyan.installDismissed') === '1'; } catch { /* 读不到就当没关过 */ }
+  bar.classList.toggle('hidden', !show || dismissed || isStandalone());
+}
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installEvent = e;
+  showInstallBar(true);
+});
+window.addEventListener('appinstalled', () => {
+  installEvent = null;
+  showInstallBar(false);
+  toast('已装到桌面，以后点图标就能打开');
+});
+$('#installBtn').onclick = async () => {
+  if (!installEvent) { showInstallBar(false); return; }
+  installEvent.prompt();
+  const r = await installEvent.userChoice.catch(() => null);
+  installEvent = null;
+  showInstallBar(false);
+  if (r && r.outcome === 'dismissed') toast('取消安装，随时可以再点右上角「安装」');
+};
+$('#installLater').onclick = () => {
+  try { localStorage.setItem('kaoyan.installDismissed', '1'); } catch { /* 存不下也只是下次再问一遍 */ }
+  showInstallBar(false);
+};
 
 function boot() {
   applyTheme();
